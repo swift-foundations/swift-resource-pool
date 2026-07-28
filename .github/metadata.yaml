@@ -1,0 +1,14 @@
+# .github/metadata.yaml
+description: "A Swift package for actor-based resource pooling."
+homepage: "https://swift-institute.org"
+topics:
+  - actor
+  - concurrency
+  - pooling
+  - resource-management
+  - resource-pool
+  - swift
+  - swift-concurrency
+  - utilities
+readme:
+  family: E
