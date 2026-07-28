@@ -1,6 +1,7 @@
 # Swift
 .build/
 .swiftpm/
+Packages/
 Package.resolved
 
 # Environment files
@@ -38,3 +39,6 @@ CLAUDE.MD
 # Temporary files
 *.tmp
 *.temp
+
+# SwiftLint Remote Config Cache
+.swiftlint/RemoteConfigCache
