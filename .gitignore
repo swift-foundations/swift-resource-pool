@@ -42,3 +42,6 @@ CLAUDE.MD
 
 # SwiftLint Remote Config Cache
 .swiftlint/RemoteConfigCache
+
+# swift-linter per-run manifests and eval project state
+.swift-lint/
