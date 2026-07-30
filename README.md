@@ -92,7 +92,7 @@ Add swift-resource-pool to your Swift package:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/coenttb/swift-resource-pool", from: "0.1.0")
+    .package(url: "https://github.com/coenttb/swift-resource-pool", from: "0.2.0")
 ]
 ```
 
