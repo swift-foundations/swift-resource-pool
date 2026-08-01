@@ -220,7 +220,7 @@ struct ResourcePoolBasicTests {
       warmup: true
     )
 
-    struct TestError: Error {}
+    struct TestError: Swift.Error {}
 
     do {
       try await pool.withResource { _ in

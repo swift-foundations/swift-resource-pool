@@ -71,7 +71,7 @@ actor MockResource: PoolableResource {
     isValid = false
   }
 
-  enum MockError: Error {
+  enum MockError: Swift.Error {
     case resetFailed
   }
 }
@@ -97,7 +97,7 @@ actor FailingResource: PoolableResource {
   func validate() async -> Bool { true }
   func reset() async throws {}
 
-  enum CreationError: Error {
+  enum CreationError: Swift.Error {
     case intentionalFailure
   }
 }

@@ -2,7 +2,7 @@
 
 // MARK: - Pool Errors
 
-public enum PoolError: Error, Sendable, Equatable {
+public enum PoolError: Swift.Error, Sendable, Equatable {
   case timeout
   case closed
   case creationFailed(String)
