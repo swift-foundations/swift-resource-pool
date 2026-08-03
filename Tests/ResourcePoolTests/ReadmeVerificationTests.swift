@@ -317,7 +317,7 @@ struct ReadmeVerificationTests {
 
     // Verify error conformances
     for error in errors {
-      _ = error as Error
+      _ = error as Swift.Error
       _ = error as Sendable
       _ = error as any Equatable
     }
