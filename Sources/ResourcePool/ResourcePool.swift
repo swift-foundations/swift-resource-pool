@@ -8,6 +8,7 @@ public enum PoolError: Swift.Error, Sendable, Equatable {
   case creationFailed(String)
   case resetFailed(String)
   case drainTimeout
+  case cancelled
 }
 
 // MARK: - PoolableResource Protocol
@@ -27,9 +28,10 @@ public enum PoolError: Swift.Error, Sendable, Equatable {
 /// or using a synchronization mechanism to ensure atomicity.
 public protocol PoolableResource: Sendable, AnyObject {
   associatedtype Config: Sendable
+  associatedtype Failure: Swift.Error
 
   /// Create a new resource instance
-  static func create(config: Config) async throws -> Self
+  static func create(config: Config) async throws(Failure) -> Self
 
   /// Check if the resource is still valid and can be reused
   /// This is called before returning a resource from the pool.
@@ -39,7 +41,7 @@ public protocol PoolableResource: Sendable, AnyObject {
   ///
   /// **Cancellation Safety**: This method MUST leave the resource in a valid state
   /// even if cancelled. The pool will return the resource even on cancellation.
-  func reset() async throws
+  func reset() async throws(Failure)
 }
 
 // MARK: - Resource Factory
@@ -47,7 +49,7 @@ public protocol PoolableResource: Sendable, AnyObject {
 private struct ResourceFactory<Resource: PoolableResource>: Sendable {
   let config: Resource.Config
 
-  func create() async throws -> Resource {
+  func create() async throws(Resource.Failure) -> Resource {
     try await Resource.create(config: config)
   }
 }
@@ -221,7 +223,7 @@ public actor ResourcePool<Resource: PoolableResource> {
     resourceConfig: Resource.Config,
     warmup: Bool = true,
     maxUsesBeforeCycling: Int? = nil
-  ) async throws {
+  ) async throws(PoolError) {
     precondition(capacity > 0, "Capacity must be positive")
     precondition(
       capacity <= Int.max / 2,
@@ -287,6 +289,15 @@ public actor ResourcePool<Resource: PoolableResource> {
   ///     try await resource.performWork()
   /// }
   /// ```
+  ///
+  /// - Note: This signature intentionally keeps untyped `throws`. It must accept an
+  ///   `operation` closure that throws its own arbitrary error type *and*
+  ///   independently surface `PoolError.timeout` / `PoolError.closed` before the
+  ///   operation ever runs. Typed throws has no error-union type, so unifying both
+  ///   under one `throws(E)` clause requires a wrapper error type; that redesign was
+  ///   attempted and reverted after it triggered a Swift compiler crash
+  ///   ("failed to produce diagnostic for expression") when combined with
+  ///   `withThrowingTaskGroup` in the test suite. See the lane report for this PR.
   public func withResource<T: Sendable>(
     timeout: Duration = .seconds(30),
     _ operation: (Resource) async throws -> T
@@ -360,7 +371,7 @@ public actor ResourcePool<Resource: PoolableResource> {
   ///
   /// - Parameter timeout: Maximum time to wait for resources to be returned
   /// - Throws: `PoolError.drainTimeout` if timeout expires with resources still leased
-  public func drain(timeout: Duration = .seconds(30)) async throws {
+  public func drain(timeout: Duration = .seconds(30)) async throws(PoolError) {
     isDraining = true
 
     // Resume all waiters with closed error
@@ -372,7 +383,11 @@ public actor ResourcePool<Resource: PoolableResource> {
     let maxBackoff = Duration.milliseconds(100)
 
     while !leased.isEmpty && ContinuousClock.now < deadline {
-      try await Task.sleep(for: backoff)
+      do {
+        try await Task.sleep(for: backoff)
+      } catch {
+        throw .cancelled
+      }
       // Exponential backoff: double the wait time up to max
       backoff = min(backoff * 2, maxBackoff)
     }
@@ -415,7 +430,7 @@ public actor ResourcePool<Resource: PoolableResource> {
   // MARK: - Internal Implementation
 
   /// Acquire a resource with fair FIFO semantics and cancellation support
-  private func acquireResource(timeout: Duration) async throws -> Resource {
+  private func acquireResource(timeout: Duration) async throws(PoolError) -> Resource {
     if isClosed || isDraining {
       throw PoolError.closed
     }
@@ -451,27 +466,38 @@ public actor ResourcePool<Resource: PoolableResource> {
     nextWaiterId += 1
     let waiterId = nextWaiterId
 
-    return try await withTaskCancellationHandler {
-      try await withCheckedThrowingContinuation { continuation in
-        let waiter = Waiter(
-          id: waiterId,
-          continuation: continuation,
-          deadline: ContinuousClock.now + timeout
-        )
+    do {
+      return try await withTaskCancellationHandler {
+        try await withCheckedThrowingContinuation { continuation in
+          let waiter = Waiter(
+            id: waiterId,
+            continuation: continuation,
+            deadline: ContinuousClock.now + timeout
+          )
 
-        waitQueue.append(waiter)
-        _metrics.recordWaiterQueued()
+          waitQueue.append(waiter)
+          _metrics.recordWaiterQueued()
 
-        // Schedule timeout check
+          // Schedule timeout check
+          Task {
+            do {
+              try await Task.sleep(for: timeout)
+            } catch {
+              // Cancelled while sleeping; still check below so a resumed/removed waiter is a no-op.
+            }
+            handleTimeout(waiterId: waiterId)
+          }
+        }
+      } onCancel: {
         Task {
-          try? await Task.sleep(for: timeout)
-          handleTimeout(waiterId: waiterId)
+          await handleCancellation(waiterId: waiterId)
         }
       }
-    } onCancel: {
-      Task {
-        await handleCancellation(waiterId: waiterId)
-      }
+    } catch let error as PoolError {
+      throw error
+    } catch {
+      // The continuation was resumed with CancellationError (task cancelled while waiting).
+      throw .cancelled
     }
   }
 
@@ -674,7 +700,11 @@ public actor ResourcePool<Resource: PoolableResource> {
   private func startCleanupTask() {
     cleanupTask = Task { [weak self] in
       while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(1))
+        do {
+          try await Task.sleep(for: .seconds(1))
+        } catch {
+          // Cancelled while sleeping; fall through so the loop condition below exits.
+        }
         await self?.cleanExpiredWaiters()
       }
     }
@@ -797,10 +827,14 @@ public actor ResourcePool<Resource: PoolableResource> {
 
   /// Test helper: Wait for background warmup to complete
   /// This is useful in tests that check statistics immediately after pool creation
-  internal func waitForWarmupCompletion(timeout: Duration = .seconds(5)) async throws {
+  internal func waitForWarmupCompletion(timeout: Duration = .seconds(5)) async throws(PoolError) {
     let deadline = ContinuousClock.now + timeout
     while totalCreated < capacity && ContinuousClock.now < deadline {
-      try await Task.sleep(for: .milliseconds(10))
+      do {
+        try await Task.sleep(for: .milliseconds(10))
+      } catch {
+        throw .cancelled
+      }
     }
     if totalCreated < capacity {
       throw PoolError.timeout
