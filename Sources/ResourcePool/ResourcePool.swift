@@ -318,7 +318,7 @@ public actor ResourcePool<Resource: PoolableResource> {
   ///
   /// Returns a point-in-time snapshot. Values may change immediately after
   /// being read due to concurrent operations.
-  public nonisolated var statistics: Statistics {
+  nonisolated public var statistics: Statistics {
     get async {
       await Statistics(
         available: available.count,
@@ -333,7 +333,7 @@ public actor ResourcePool<Resource: PoolableResource> {
   /// Get current pool metrics
   ///
   /// Provides observability into pool behavior for monitoring and debugging.
-  public nonisolated var metrics: Metrics {
+  nonisolated public var metrics: Metrics {
     get async {
       var metricsSnapshot = await _metrics
       metricsSnapshot.currentStatistics = await statistics
@@ -687,19 +687,19 @@ public actor ResourcePool<Resource: PoolableResource> {
   /// checking totalCreated.
   private func startBackgroundWarmup() {
     Task { [weak self] in
-      guard let self = self else { return }
+      guard let self else { return }
 
       // Pre-create remaining resources up to capacity
       // shouldCreateWarmupResource() checks totalCreated, so this naturally
       // accounts for any resources already created
-      while await self.shouldCreateWarmupResource() {
+      while await shouldCreateWarmupResource() {
         do {
-          let resource = try await self.factory.create()
+          let resource = try await factory.create()
 
           // Add to pool - this increments totalCreated
-          await self.addWarmupResource(resource, incrementCount: true)
+          await addWarmupResource(resource, incrementCount: true)
         } catch {
-          await self.recordCreationFailure()
+          await recordCreationFailure()
         }
       }
     }
