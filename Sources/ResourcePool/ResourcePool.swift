@@ -57,7 +57,7 @@ private struct ResourceFactory<Resource: PoolableResource>: Sendable {
 /// Represents a task waiting for a resource
 private struct Waiter<Resource: PoolableResource>: Sendable {
   let id: UInt64
-  let continuation: CheckedContinuation<Resource, Error>
+  let continuation: CheckedContinuation<Resource, Swift.Error>
   let deadline: ContinuousClock.Instant
 
   var isExpired: Bool {
@@ -663,7 +663,7 @@ public actor ResourcePool<Resource: PoolableResource> {
   }
 
   /// Resume all waiters with an error (used during close/drain)
-  private func resumeAllWaitersWithError(_ error: Error) {
+  private func resumeAllWaitersWithError(_ error: Swift.Error) {
     for waiter in waitQueue {
       waiter.continuation.resume(throwing: error)
     }
