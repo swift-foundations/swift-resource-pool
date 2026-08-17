@@ -239,12 +239,19 @@ struct ReadmeVerificationTests {
         )
 
         // Application shutdown
+        //
+        // A bare `catch` over the typed-throws `drain` is used instead of
+        // `catch PoolError.drainTimeout`: the case-pattern catch over a
+        // `throws(PoolError)` callee crashes the Swift 6.4 (swiftlang-6.4.0.27.1,
+        // Xcode 27.0) SILGenCleanup ownership verifier.
+        // See https://github.com/swift-institute/Issues/issues/119.
         func shutdown() async throws {
-            do {
+            do throws(PoolError) {
                 // Wait for active operations to complete
                 try await pool.drain(timeout: .seconds(30))
                 // Pool drained successfully
-            } catch PoolError.drainTimeout {
+            } catch {
+                guard error == .drainTimeout else { throw error }
                 // Pool drain timed out, some resources still leased
                 // Force close if needed
                 await pool.close()
