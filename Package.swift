@@ -5,9 +5,9 @@ import PackageDescription
 let package = Package(
     name: "swift-resource-pool",
     platforms: [
-        .macOS(.v13),
-        .iOS(.v16),
-        .tvOS(.v16),
+        .macOS("27"),
+        .iOS("27"),
+        .tvOS("27"),
         .watchOS(.v9)
     ],
     products: [
