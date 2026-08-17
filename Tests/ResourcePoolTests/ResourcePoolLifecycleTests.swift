@@ -95,11 +95,15 @@ struct ResourcePoolLifecycleTests {
 
         try await Task.sleep(for: .milliseconds(50))
 
-        do {
+        // A bare typed `catch` is used instead of `catch PoolError.drainTimeout`:
+        // the case-pattern catch over a `throws(PoolError)` callee crashes the
+        // Swift 6.4 (swiftlang-6.4.0.27.1, Xcode 27.0) SILGenCleanup ownership
+        // verifier. See https://github.com/swift-institute/Issues/issues/119.
+        do throws(PoolError) {
             try await pool.drain(timeout: .milliseconds(100))
             Issue.record("Should have timed out")
-        } catch PoolError.drainTimeout {
-            // Expected
+        } catch {
+            #expect(error == .drainTimeout)
         }
 
         operation.cancel()

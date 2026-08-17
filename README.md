@@ -545,11 +545,12 @@ Task {
 ```swift
 // Application shutdown
 func shutdown() async throws {
-    do {
+    do throws(PoolError) {
         // Wait for active operations to complete
         try await pool.drain(timeout: .seconds(30))
         logger.info("Pool drained successfully")
-    } catch PoolError.drainTimeout {
+    } catch {
+        guard error == .drainTimeout else { throw error }
         logger.warning("Pool drain timed out, some resources still leased")
         // Force close if needed
         await pool.close()
